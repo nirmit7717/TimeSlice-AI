@@ -1,5 +1,8 @@
+import json
+import uuid
+from datetime import datetime
 from typing import List, Optional
-from database.models import DbTimeSlice
+from database.models import DbTimeSlice, DbTransaction
 from database.repositories.base import BaseRepository
 from scheduling_system.models.time_slice import TimeSlice
 
@@ -24,6 +27,8 @@ class TimeSliceRepository(BaseRepository):
         data = time_slice.model_dump()
         db_slice = DbTimeSlice(**data)
         self.db.add(db_slice)
+        
+        self._log_transaction("time_slices", time_slice.id, "INSERT", data)
         self.db.commit()
         self.db.refresh(db_slice)
         return self._to_domain(db_slice)
@@ -39,6 +44,7 @@ class TimeSliceRepository(BaseRepository):
             if key != "id":
                 setattr(db_slice, key, val)
 
+        self._log_transaction("time_slices", time_slice.id, "UPDATE", data)
         self.db.commit()
         self.db.refresh(db_slice)
         return self._to_domain(db_slice)
@@ -49,8 +55,24 @@ class TimeSliceRepository(BaseRepository):
         if not db_slice:
             return False
         self.db.delete(db_slice)
+        self._log_transaction("time_slices", slice_id, "DELETE", {"id": slice_id})
         self.db.commit()
         return True
+
+    def _log_transaction(self, table_name: str, record_id: str, action: str, payload: dict) -> None:
+        def serialize_datetime(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError("Type not serializable")
+            
+        sync_tx = DbTransaction(
+            id=str(uuid.uuid4()),
+            table_name=table_name,
+            record_id=record_id,
+            action=action,
+            payload=json.dumps(payload, default=serialize_datetime)
+        )
+        self.db.add(sync_tx)
 
     def _to_domain(self, db_slice: DbTimeSlice) -> TimeSlice:
         """Converts an internal database model instance to a clean domain Pydantic model."""

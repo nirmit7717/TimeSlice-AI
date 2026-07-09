@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, TypeDecorator
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, TypeDecorator, Boolean
 from sqlalchemy.orm import relationship
 from database.connection import Base
 
@@ -59,3 +59,16 @@ class DbTimeSlice(Base):
 
     # Relationships
     process = relationship("DbProcess", back_populates="time_slices")
+
+
+class DbTransaction(Base):
+    __tablename__ = "sync_transactions"
+
+    id = Column(String, primary_key=True, index=True)
+    table_name = Column(String, nullable=False)  # "processes" or "time_slices"
+    record_id = Column(String, nullable=False)
+    action = Column(String, nullable=False)      # "INSERT", "UPDATE", "DELETE"
+    payload = Column(String, default="{}")       # JSON serialised dump of the record
+    created_at = Column(DateTime, default=datetime.utcnow)
+    synced = Column(Boolean, default=False)
+

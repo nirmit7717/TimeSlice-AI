@@ -1,5 +1,8 @@
+import json
+import uuid
+from datetime import datetime
 from typing import List, Optional
-from database.models import DbProcess
+from database.models import DbProcess, DbTransaction
 from database.repositories.base import BaseRepository
 from scheduling_system.models.process import Process
 
@@ -16,10 +19,11 @@ class ProcessRepository(BaseRepository):
 
     def create(self, process: Process) -> Process:
         """Saves a new process record in the database."""
-        # Convert pydantic dump to SQLAlchemy dictionary
         data = process.model_dump()
         db_proc = DbProcess(**data)
         self.db.add(db_proc)
+        
+        self._log_transaction("processes", process.id, "INSERT", data)
         self.db.commit()
         self.db.refresh(db_proc)
         return self._to_domain(db_proc)
@@ -35,6 +39,7 @@ class ProcessRepository(BaseRepository):
             if key != "id":
                 setattr(db_proc, key, val)
 
+        self._log_transaction("processes", process.id, "UPDATE", data)
         self.db.commit()
         self.db.refresh(db_proc)
         return self._to_domain(db_proc)
@@ -45,8 +50,25 @@ class ProcessRepository(BaseRepository):
         if not db_proc:
             return False
         self.db.delete(db_proc)
+        self._log_transaction("processes", process_id, "DELETE", {"id": process_id})
         self.db.commit()
         return True
+
+    def _log_transaction(self, table_name: str, record_id: str, action: str, payload: dict) -> None:
+        def serialize_datetime(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError("Type not serializable")
+            
+        sync_tx = DbTransaction(
+            id=str(uuid.uuid4()),
+            table_name=table_name,
+            record_id=record_id,
+            action=action,
+            payload=json.dumps(payload, default=serialize_datetime)
+        )
+        self.db.add(sync_tx)
+
 
     def _to_domain(self, db_proc: DbProcess) -> Process:
         """Converts an internal database model instance to a clean domain Pydantic model."""

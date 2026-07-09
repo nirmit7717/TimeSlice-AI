@@ -2,11 +2,13 @@ from typing import Dict, List
 from scheduling_system.interfaces.policy import ISchedulerPolicy
 from .round_robin import RoundRobinPolicy
 from .priority import PriorityPolicy
+from .sjf import ShortestJobFirstPolicy
+from .edf import EarliestDeadlineFirstPolicy
 
 class PolicyManager:
     """
     Registry for managing available scheduling policies.
-    Automatically registers default policies (Round Robin, Priority).
+    Automatically registers default policies.
     """
     def __init__(self):
         self._policies: Dict[str, ISchedulerPolicy] = {}
@@ -14,6 +16,8 @@ class PolicyManager:
         # Pre-register default policies
         self.register_policy(RoundRobinPolicy())
         self.register_policy(PriorityPolicy())
+        self.register_policy(ShortestJobFirstPolicy())
+        self.register_policy(EarliestDeadlineFirstPolicy())
 
     def register_policy(self, policy: ISchedulerPolicy) -> None:
         """Registers a new scheduling policy."""
