@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from scheduling_system.interfaces.service import ISchedulingService
 from scheduling_system.models.process import Process
 from scheduling_system.models.execution_plan import ExecutionPlan
@@ -128,9 +128,14 @@ class SchedulingService(ISchedulingService):
             p.attention_equity = equity
             
             # 3. Process Health
-            # Assume 10 days left for simplicity if no deadline info, or parse it
-            now = datetime.now(p.deadline.tzinfo) if p.deadline.tzinfo else datetime.now(timezone.utc)
-            time_left_hours = max(0.0, (p.deadline - now).total_seconds() / 3600.0)
+            p_deadline = p.deadline
+            if p_deadline and p_deadline.tzinfo:
+                p_deadline = p_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+            elif p_deadline:
+                p_deadline = p_deadline.replace(tzinfo=None)
+                
+            now_naive = datetime.utcnow()
+            time_left_hours = max(0.0, (p_deadline - now_naive).total_seconds() / 3600.0) if p_deadline else 0.0
             
             p.health_score = self.health_calc.calculate_health_score(p, time_left_hours)
             

@@ -1,5 +1,7 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { useProcessStore } from "../stores/process-store";
+import { usePreferencesStore } from "../stores/preferences-store";
 
 interface CalendarEvent {
   id: string;
@@ -54,7 +56,14 @@ function formatDateKey(date: Date): string {
 }
 
 export function CalendarPage() {
+  const processes = useProcessStore((s) => s.processes);
+  const activePolicy = usePreferencesStore((s) => s.activePolicy);
+  const maxDailyFocusHours = usePreferencesStore((s) => s.maxDailyFocusHours);
+
   const [currentDate, setCurrentDate] = useState(new Date("2026-07-07"));
+  const [events, setEvents] = useState<Record<string, CalendarEvent[]>>(mockEvents);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
   const weekDates = getWeekDates(currentDate);
 
   const goToPrevWeek = () => {
@@ -69,6 +78,56 @@ export function CalendarPage() {
     setCurrentDate(d);
   };
 
+  const handleOptimizePlan = async () => {
+    setIsOptimizing(true);
+    try {
+      const payload = {
+        policyName: activePolicy.charAt(0).toUpperCase() + activePolicy.slice(1), // format e.g. "Priority"
+        availableHours: maxDailyFocusHours,
+        quantumHours: 2.0,
+        blockedIntervals: []
+      };
+
+      const res = await fetch("http://localhost:8000/api/v1/scheduler/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const newEvents: Record<string, CalendarEvent[]> = {};
+
+        data.executionWindows.forEach((w: any) => {
+          const ts = w.timeSlice;
+          const start = new Date(ts.startTime);
+          const dateKey = start.toISOString().split("T")[0];
+          const timeStr = start.toTimeString().substring(0, 5);
+          const duration = ts.durationHours;
+          const proc = processes.find((p) => p.id === ts.processId);
+          const title = proc ? proc.name : "Scheduled Slot";
+
+          if (!newEvents[dateKey]) {
+            newEvents[dateKey] = [];
+          }
+          newEvents[dateKey].push({
+            id: w.id,
+            title,
+            time: timeStr,
+            duration,
+            color: "bg-primary",
+          });
+        });
+
+        setEvents(newEvents);
+      }
+    } catch (err) {
+      console.error("Plan optimization failed:", err);
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
   return (
     <div className="p-8 h-full flex flex-col">
       {/* Header */}
@@ -80,6 +139,14 @@ export function CalendarPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleOptimizePlan}
+            disabled={isOptimizing}
+            className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-semibold rounded-lg transition-colors mr-4 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {isOptimizing ? "Optimizing..." : "Optimize Focus Plan"}
+          </button>
           <button
             onClick={goToPrevWeek}
             className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
@@ -139,8 +206,8 @@ export function CalendarPage() {
                 {/* Day Cells */}
                 {weekDates.map((date, dayIdx) => {
                   const dateKey = formatDateKey(date);
-                  const events = mockEvents[dateKey] || [];
-                  const hourEvents = events.filter(
+                  const dayEvents = events[dateKey] || [];
+                  const hourEvents = dayEvents.filter(
                     (e) => parseInt(e.time.split(":")[0]) === hour
                   );
 

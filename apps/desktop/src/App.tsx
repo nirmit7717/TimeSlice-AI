@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "./components/layout/sidebar";
 import { Header } from "./components/layout/header";
@@ -9,7 +10,11 @@ import { ProcessCreatePage } from "./pages/process-create";
 import { CalendarPage } from "./pages/calendar";
 import { AnalyticsPage } from "./pages/analytics";
 import { SettingsPage } from "./pages/settings";
-import { PlaceholderPage } from "./pages/placeholder";
+import { KernelPage } from "./pages/kernel";
+import { VaultPage } from "./pages/vault";
+import { useProcessStore } from "./stores/process-store";
+import { useAuthStore } from "./stores/auth-store";
+import { LoginOverlay } from "./components/layout/login-overlay";
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -28,6 +33,19 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const fetchProcesses = useProcessStore((state) => state.fetchProcesses);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchProcesses();
+    }
+  }, [fetchProcesses, isAuthenticated]);
+
+  if (!isAuthenticated) {
+    return <LoginOverlay />;
+  }
+
   return (
     <BrowserRouter>
       <AppLayout>
@@ -37,24 +55,8 @@ function App() {
           <Route path="/processes/new" element={<ProcessCreatePage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route
-            path="/kernel"
-            element={
-              <PlaceholderPage
-                title="Attention Kernel"
-                description="Natural language chat with the AI kernel for scheduling recommendations, process management, and checklist generation."
-              />
-            }
-          />
-          <Route
-            path="/vault"
-            element={
-              <PlaceholderPage
-                title="Context Vault"
-                description="Long-term contextual memory, embeddings, notes, and project knowledge stored locally."
-              />
-            }
-          />
+          <Route path="/kernel" element={<KernelPage />} />
+          <Route path="/vault" element={<VaultPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </AppLayout>

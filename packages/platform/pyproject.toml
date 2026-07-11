@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timeslice-platform"
+version = "0.1.0"
+description = "Cognito auth, Google Calendar OAuth sync, Telegram bots, and background workers for TimeSlice AI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyjwt[crypto]>=2.7.0",
+    "requests>=2.28.0",
+    "google-auth>=2.20.0",
+    "google-api-python-client>=2.90.0"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0"
+]

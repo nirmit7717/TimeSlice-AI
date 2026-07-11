@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # 1. FastAPI Local Web Service
+  timeslice-backend:
+    build:
+      context: ..
+      dockerfile: deployment/docker/production.Dockerfile
+    image: timeslice-backend:latest
+    container_name: timeslice-backend-srv
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres-db:5432/timeslice
+      - NVIDIA_API_KEY=mock-key
+    depends_on:
+      - postgres-db
+    restart: always
+
+  # 2. Staging Postgres Server (Cloud database replication test database)
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: timeslice-postgres-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=timeslice
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres-data:

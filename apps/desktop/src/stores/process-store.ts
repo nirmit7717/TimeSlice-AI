@@ -20,120 +20,123 @@ export interface Process {
   updatedAt: string;
 }
 
+const API_BASE_URL = "http://localhost:8000/api/v1";
+
 interface ProcessStore {
   processes: Process[];
-  addProcess: (process: Omit<Process, "id" | "createdAt" | "updatedAt" | "progress" | "attentionDebt" | "attentionEquity">) => void;
-  updateProcess: (id: string, updates: Partial<Process>) => void;
-  deleteProcess: (id: string) => void;
-  pauseProcess: (id: string) => void;
-  resumeProcess: (id: string) => void;
-  archiveProcess: (id: string) => void;
+  fetchProcesses: () => Promise<void>;
+  addProcess: (process: Omit<Process, "id" | "createdAt" | "updatedAt" | "progress" | "attentionDebt" | "attentionEquity">) => Promise<void>;
+  updateProcess: (id: string, updates: Partial<Process>) => Promise<void>;
+  deleteProcess: (id: string) => Promise<void>;
+  pauseProcess: (id: string) => Promise<void>;
+  resumeProcess: (id: string) => Promise<void>;
+  archiveProcess: (id: string) => Promise<void>;
   getProcessById: (id: string) => Process | undefined;
 }
 
-const initialProcesses: Process[] = [
-  {
-    id: "proc-1",
-    name: "Backend Scheduler API",
-    description: "Build the core scheduling engine REST API",
-    goal: "Complete all CRUD endpoints and policy execution",
-    deadline: "2026-07-10",
-    priority: 5,
-    estimatedEffort: 40,
-    status: "Active",
-    progress: 65,
-    attentionDebt: 3.2,
-    attentionEquity: 12.5,
-    notes: "Focus on Round Robin and Priority policies first",
-    createdAt: "2026-06-15T10:00:00Z",
-    updatedAt: "2026-07-06T18:30:00Z",
-  },
-  {
-    id: "proc-2",
-    name: "Azure AZ-900 Certification",
-    description: "Study for Azure Fundamentals certification exam",
-    goal: "Pass AZ-900 exam with 80%+ score",
-    deadline: "2026-07-15",
-    priority: 4,
-    estimatedEffort: 25,
-    status: "Active",
-    progress: 28,
-    attentionDebt: 5.1,
-    attentionEquity: 6.8,
-    notes: "Complete modules on compute, networking, and storage",
-    createdAt: "2026-06-20T09:00:00Z",
-    updatedAt: "2026-07-05T14:00:00Z",
-  },
-  {
-    id: "proc-3",
-    name: "Q4 Planning Review",
-    description: "Quarterly planning document and roadmap review",
-    goal: "Finalize Q4 objectives and resource allocation",
-    deadline: "2026-07-20",
-    priority: 3,
-    estimatedEffort: 10,
-    status: "Paused",
-    progress: 12,
-    attentionDebt: 8.5,
-    attentionEquity: 1.2,
-    notes: "Waiting for team input on budget allocations",
-    createdAt: "2026-06-25T11:00:00Z",
-    updatedAt: "2026-07-01T16:00:00Z",
-  },
-  {
-    id: "proc-4",
-    name: "Code Review Session",
-    description: "Review outstanding PRs and provide feedback",
-    goal: "Clear PR backlog and document patterns",
-    deadline: "2026-07-09",
-    priority: 4,
-    estimatedEffort: 5,
-    status: "Active",
-    progress: 45,
-    attentionDebt: 1.5,
-    attentionEquity: 3.0,
-    notes: "",
-    createdAt: "2026-07-01T08:00:00Z",
-    updatedAt: "2026-07-06T20:00:00Z",
-  },
-  {
-    id: "proc-5",
-    name: "Personal Portfolio",
-    description: "Build and deploy personal portfolio website",
-    goal: "Launch portfolio with 5 case studies",
-    deadline: "2026-08-01",
-    priority: 2,
-    estimatedEffort: 30,
-    status: "Completed",
-    progress: 100,
-    attentionDebt: 0,
-    attentionEquity: 30,
-    notes: "Deployed at portfolio.dev",
-    createdAt: "2026-05-01T10:00:00Z",
-    updatedAt: "2026-06-28T12:00:00Z",
-  },
-];
+const initialProcesses: Process[] = [];
 
 export const useProcessStore = create<ProcessStore>()(
   persist(
     (set, get) => ({
       processes: initialProcesses,
 
-      addProcess: (processData) => {
+      fetchProcesses: async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/processes`);
+          if (res.ok) {
+            const data = await res.json();
+            const mapped = data.map((p: any) => ({
+              ...p,
+              estimatedEffort: p.estimatedEffortHours || 0,
+              progress: Math.round((p.progress || 0) * 100),
+            }));
+            set({ processes: mapped });
+          }
+        } catch (err) {
+          console.warn("Backend API offline, using local cache:", err);
+        }
+      },
+
+      addProcess: async (processData) => {
+        try {
+          const payload = {
+            name: processData.name,
+            description: processData.description,
+            goal: processData.goal,
+            deadline: processData.deadline,
+            priority: processData.priority,
+            estimatedEffortHours: processData.estimatedEffort,
+            status: processData.status,
+            tags: [],
+          };
+          const res = await fetch(`${API_BASE_URL}/processes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const newProcess: Process = {
+              ...data,
+              estimatedEffort: data.estimatedEffortHours,
+              progress: Math.round((data.progress || 0) * 100),
+            };
+            set((state) => ({ processes: [...state.processes, newProcess] }));
+            return;
+          }
+        } catch (err) {
+          console.error("Backend offline, saving locally:", err);
+        }
+        
+        // Local fallback
         const now = new Date().toISOString();
-        const newProcess: Process = {
+        const localProcess: Process = {
           ...processData,
           id: `proc-${Date.now()}`,
           progress: 0,
           attentionDebt: 0,
           attentionEquity: 0,
+          notes: "",
           createdAt: now,
           updatedAt: now,
         };
-        set((state) => ({ processes: [...state.processes, newProcess] }));
+        set((state) => ({ processes: [...state.processes, localProcess] }));
       },
 
-      updateProcess: (id, updates) => {
+      updateProcess: async (id, updates) => {
+        try {
+          const payload: any = {};
+          if (updates.name !== undefined) payload.name = updates.name;
+          if (updates.description !== undefined) payload.description = updates.description;
+          if (updates.goal !== undefined) payload.goal = updates.goal;
+          if (updates.deadline !== undefined) payload.deadline = updates.deadline;
+          if (updates.priority !== undefined) payload.priority = updates.priority;
+          if (updates.estimatedEffort !== undefined) payload.estimatedEffortHours = updates.estimatedEffort;
+          if (updates.status !== undefined) payload.status = updates.status;
+          if (updates.progress !== undefined) payload.progress = updates.progress / 100;
+
+          const res = await fetch(`${API_BASE_URL}/processes/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const updatedProcess: Process = {
+              ...data,
+              estimatedEffort: data.estimatedEffortHours,
+              progress: Math.round((data.progress || 0) * 100),
+            };
+            set((state) => ({
+              processes: state.processes.map((p) => (p.id === id ? updatedProcess : p)),
+            }));
+            return;
+          }
+        } catch (err) {
+          console.error("Backend offline, updating locally:", err);
+        }
+
         set((state) => ({
           processes: state.processes.map((p) =>
             p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p
@@ -141,34 +144,32 @@ export const useProcessStore = create<ProcessStore>()(
         }));
       },
 
-      deleteProcess: (id) => {
-        set((state) => ({
-          processes: state.processes.filter((p) => p.id !== id),
-        }));
+      deleteProcess: async (id) => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/processes/${id}`, { method: "DELETE" });
+          if (res.ok) {
+            set((state) => ({ processes: state.processes.filter((p) => p.id !== id) }));
+            return;
+          }
+        } catch (err) {
+          console.error("Backend offline, deleting locally:", err);
+        }
+        set((state) => ({ processes: state.processes.filter((p) => p.id !== id) }));
       },
 
-      pauseProcess: (id) => {
-        set((state) => ({
-          processes: state.processes.map((p) =>
-            p.id === id ? { ...p, status: "Paused" as ProcessStatus, updatedAt: new Date().toISOString() } : p
-          ),
-        }));
+      pauseProcess: async (id) => {
+        const store = get();
+        await store.updateProcess(id, { status: "Paused" as ProcessStatus });
       },
 
-      resumeProcess: (id) => {
-        set((state) => ({
-          processes: state.processes.map((p) =>
-            p.id === id ? { ...p, status: "Active" as ProcessStatus, updatedAt: new Date().toISOString() } : p
-          ),
-        }));
+      resumeProcess: async (id) => {
+        const store = get();
+        await store.updateProcess(id, { status: "Active" as ProcessStatus });
       },
 
-      archiveProcess: (id) => {
-        set((state) => ({
-          processes: state.processes.map((p) =>
-            p.id === id ? { ...p, status: "Archived" as ProcessStatus, updatedAt: new Date().toISOString() } : p
-          ),
-        }));
+      archiveProcess: async (id) => {
+        const store = get();
+        await store.updateProcess(id, { status: "Archived" as ProcessStatus });
       },
 
       getProcessById: (id) => {
