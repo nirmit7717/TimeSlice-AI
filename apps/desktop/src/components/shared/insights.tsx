@@ -10,7 +10,8 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-import { apiClient } from "@/services/api-client";
+import { apiClient } from "../../services/api-client";
+
 
 // ─── Skeleton placeholder ─────────────────────────────────────────────────────
 function ChartSkeleton({ height = 200 }: { height?: number }) {

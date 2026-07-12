@@ -8,7 +8,8 @@ from app.dependencies import get_db
 from app.logger import setup_logging
 from app.routers import (
     processes_router, slices_router, scheduler_router,
-    vault_router, chat_router, sync_router
+    vault_router, chat_router, sync_router, analytics_router,
+    adaptive_router, auth_router, calendar_router, notifications_router
 )
 
 # Initialize telemetry JSON logging formats on server load
@@ -44,12 +45,25 @@ app.include_router(scheduler_router, prefix="/api/v1")
 app.include_router(vault_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(sync_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(adaptive_router, prefix="/api/v1/adaptive")
+app.include_router(auth_router, prefix="/api/v1/auth")
+app.include_router(calendar_router, prefix="/api/v1/calendar")
+app.include_router(notifications_router, prefix="/api/v1/notifications")
+
 
 @app.on_event("startup")
 def on_startup():
-    """Ensure database tables exist on local startup."""
-    from database.connection import engine, Base
+    """Ensure database tables exist on local startup and initialize background tasks."""
+    from database.connection import engine, Base, SessionLocal
     Base.metadata.create_all(bind=engine)
+    
+    # Initialize notification background jobs
+    try:
+        from notification_system.scheduler.reminder_scheduler import initialize_notification_scheduler
+        initialize_notification_scheduler(lambda: SessionLocal())
+    except Exception as e:
+        print("[Scheduler Startup Error]", e)
 
 @app.get("/")
 def read_root():

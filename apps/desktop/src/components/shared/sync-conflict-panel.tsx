@@ -1,65 +1,92 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, Monitor, Cloud, Check } from "lucide-react";
 
 interface ConflictItem {
   id: string;
-  processName: string;
+  recordId: string;
+  tableName: string;
   field: string;
   localValue: string;
   cloudValue: string;
-  timestamp: { local: string; cloud: string };
+  localUpdatedAt: string;
+  cloudUpdatedAt: string;
+  processName: string;
 }
-
-const mockConflicts: ConflictItem[] = [
-  {
-    id: "conflict-1",
-    processName: "Backend Scheduler API",
-    field: "Progress",
-    localValue: "68%",
-    cloudValue: "65%",
-    timestamp: { local: "Jul 7, 00:15", cloud: "Jul 6, 23:45" },
-  },
-  {
-    id: "conflict-2",
-    processName: "Azure AZ-900 Certification",
-    field: "Status",
-    localValue: "Active",
-    cloudValue: "Paused",
-    timestamp: { local: "Jul 7, 00:10", cloud: "Jul 6, 22:30" },
-  },
-  {
-    id: "conflict-3",
-    processName: "Q4 Planning Review",
-    field: "Priority",
-    localValue: "4 (High)",
-    cloudValue: "3 (Medium)",
-    timestamp: { local: "Jul 6, 23:50", cloud: "Jul 6, 21:00" },
-  },
-];
 
 type Resolution = "local" | "cloud";
 
 export function SyncConflictPanel() {
-  const [resolutions, setResolutions] = useState<Record<string, Resolution>>(
-    {}
-  );
-  const [resolved, setResolved] = useState<string[]>([]);
+  const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
+  const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchConflicts = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/sync/conflicts");
+      if (res.ok) {
+        const data = await res.json();
+        setConflicts(data);
+      }
+    } catch (err) {
+      console.error("Failed to load sync conflicts:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConflicts();
+  }, []);
 
   const setResolution = (id: string, choice: Resolution) => {
     setResolutions((prev) => ({ ...prev, [id]: choice }));
   };
 
-  const applyResolutions = () => {
-    const resolvedIds = Object.keys(resolutions);
-    setResolved((prev) => [...prev, ...resolvedIds]);
+  const applyResolutions = async () => {
+    for (const [id, choice] of Object.entries(resolutions)) {
+      const conflict = conflicts.find((c) => c.id === id);
+      if (!conflict) continue;
+
+      // Construct cloud payload if resolving using cloud values
+      const cloudPayload = choice === "cloud"
+        ? conflict.tableName === "processes"
+          ? { name: conflict.cloudValue }
+          : { status: conflict.cloudValue }
+        : null;
+
+      try {
+        const res = await fetch(`http://localhost:8000/api/v1/sync/conflicts/${encodeURIComponent(id)}/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            resolution: choice,
+            cloudPayload,
+          }),
+        });
+        if (!res.ok) {
+          console.error(`Failed to resolve conflict ${id}`);
+        }
+      } catch (err) {
+        console.error("Network error during resolution:", err);
+      }
+    }
+
     setResolutions({});
+    fetchConflicts();
   };
 
-  const unresolvedConflicts = mockConflicts.filter(
-    (c) => !resolved.includes(c.id)
-  );
+  if (isLoading) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-8 text-center">
+        <p className="text-xs text-muted-foreground animate-pulse">
+          Querying cloud conflicts database...
+        </p>
+      </div>
+    );
+  }
 
-  if (unresolvedConflicts.length === 0) {
+  if (conflicts.length === 0) {
     return (
       <div className="bg-card border border-border rounded-xl p-8 text-center">
         <div className="w-12 h-12 rounded-full bg-emerald-400/10 flex items-center justify-center mx-auto mb-4">
@@ -69,7 +96,7 @@ export function SyncConflictPanel() {
           All Synced
         </h3>
         <p className="text-xs text-muted-foreground">
-          No conflicts to resolve. Local and cloud are in sync.
+          No conflicts to resolve. Local and cloud databases are perfectly aligned.
         </p>
       </div>
     );
@@ -84,7 +111,7 @@ export function SyncConflictPanel() {
         </div>
         <div>
           <h3 className="text-sm font-semibold text-foreground">
-            Sync Conflicts ({unresolvedConflicts.length})
+            Sync Conflicts ({conflicts.length})
           </h3>
           <p className="text-xs text-muted-foreground">
             Choose which version to keep for each conflict
@@ -94,7 +121,7 @@ export function SyncConflictPanel() {
 
       {/* Conflict Cards */}
       <div className="space-y-3">
-        {unresolvedConflicts.map((conflict) => {
+        {conflicts.map((conflict) => {
           const choice = resolutions[conflict.id];
           return (
             <div
@@ -128,14 +155,19 @@ export function SyncConflictPanel() {
                       Local
                     </span>
                     {choice === "local" && (
-                      <Check className="w-3 h-3 text-primary ml-auto" />
+                      <Check className="w-3.5 h-3.5 text-primary ml-auto" />
                     )}
                   </div>
-                  <p className="text-sm font-semibold text-foreground">
+                  <p className="text-sm font-semibold text-foreground break-all">
                     {conflict.localValue}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {conflict.timestamp.local}
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {new Date(conflict.localUpdatedAt).toLocaleDateString([], {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
                   </p>
                 </button>
 
@@ -154,14 +186,19 @@ export function SyncConflictPanel() {
                       Cloud
                     </span>
                     {choice === "cloud" && (
-                      <Check className="w-3 h-3 text-secondary ml-auto" />
+                      <Check className="w-3.5 h-3.5 text-secondary ml-auto" />
                     )}
                   </div>
-                  <p className="text-sm font-semibold text-foreground">
+                  <p className="text-sm font-semibold text-foreground break-all">
                     {conflict.cloudValue}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {conflict.timestamp.cloud}
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {new Date(conflict.cloudUpdatedAt).toLocaleDateString([], {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
                   </p>
                 </button>
               </div>
@@ -174,10 +211,10 @@ export function SyncConflictPanel() {
       {Object.keys(resolutions).length > 0 && (
         <button
           onClick={applyResolutions}
-          className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
         >
           Apply Resolutions ({Object.keys(resolutions).length}/
-          {unresolvedConflicts.length})
+          {conflicts.length})
         </button>
       )}
     </div>

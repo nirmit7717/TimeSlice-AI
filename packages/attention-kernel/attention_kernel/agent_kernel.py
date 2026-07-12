@@ -4,6 +4,7 @@ from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
+from attention_kernel.tools import ToolRegistry
 
 class AgentState(TypedDict):
     """
@@ -18,8 +19,10 @@ class AgenticAttentionKernel:
     """
     LangGraph orchestrator connecting multi-agent nodes to local tools via Nvidia NIM endpoints.
     """
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, db_session: Optional[Any] = None):
         self.api_key = api_key or os.getenv("NVIDIA_API_KEY", "mock-key")
+        self.db_session = db_session
+        self.registry = ToolRegistry(db_session) if db_session else None
         
         # NIM is fully OpenAI-compatible. Default model routes to Nemotron/Llama
         if self.api_key == "mock-key":
@@ -33,6 +36,7 @@ class AgenticAttentionKernel:
             )
             
         self.graph = self._build_graph()
+
 
     def _build_graph(self) -> StateGraph:
         builder = StateGraph(AgentState)

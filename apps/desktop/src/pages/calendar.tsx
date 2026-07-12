@@ -1,40 +1,9 @@
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useState } from "react";
-import { useProcessStore } from "../stores/process-store";
 import { usePreferencesStore } from "../stores/preferences-store";
 
-interface CalendarEvent {
-  id: string;
-  title: string;
-  time: string;
-  duration: number; // in hours
-  color: string;
-}
-
-const mockEvents: Record<string, CalendarEvent[]> = {
-  "2026-07-07": [
-    { id: "1", title: "Backend Scheduler", time: "09:00", duration: 1.5, color: "bg-primary" },
-    { id: "2", title: "Azure AZ-900", time: "11:00", duration: 2, color: "bg-secondary" },
-    { id: "3", title: "Gym", time: "15:00", duration: 1, color: "bg-emerald-500" },
-    { id: "4", title: "Research", time: "20:00", duration: 1.5, color: "bg-amber-500" },
-  ],
-  "2026-07-08": [
-    { id: "5", title: "Code Review", time: "10:00", duration: 1, color: "bg-primary" },
-    { id: "6", title: "Q4 Planning", time: "14:00", duration: 2, color: "bg-amber-500" },
-  ],
-  "2026-07-09": [
-    { id: "7", title: "Backend Scheduler", time: "09:00", duration: 2, color: "bg-primary" },
-    { id: "8", title: "Azure AZ-900", time: "16:00", duration: 1.5, color: "bg-secondary" },
-  ],
-  "2026-07-10": [
-    { id: "9", title: "Backend Scheduler", time: "08:00", duration: 2, color: "bg-primary" },
-    { id: "10", title: "Gym", time: "12:00", duration: 1, color: "bg-emerald-500" },
-    { id: "11", title: "Research", time: "19:00", duration: 2, color: "bg-amber-500" },
-  ],
-  "2026-07-11": [
-    { id: "12", title: "Code Review", time: "09:00", duration: 1, color: "bg-primary" },
-  ],
-};
+// Calendar system page loaded dynamically from backend store
+import { useCalendarStore } from "../stores/calendar-store";
 
 const hours = Array.from({ length: 14 }, (_, i) => i + 7); // 7AM to 8PM
 const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -55,16 +24,24 @@ function formatDateKey(date: Date): string {
   return date.toISOString().split("T")[0];
 }
 
+import { useEffect } from "react";
+
 export function CalendarPage() {
-  const processes = useProcessStore((s) => s.processes);
   const activePolicy = usePreferencesStore((s) => s.activePolicy);
   const maxDailyFocusHours = usePreferencesStore((s) => s.maxDailyFocusHours);
+  const calendarStore = useCalendarStore();
 
   const [currentDate, setCurrentDate] = useState(new Date("2026-07-07"));
-  const [events, setEvents] = useState<Record<string, CalendarEvent[]>>(mockEvents);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   const weekDates = getWeekDates(currentDate);
+
+  // Fetch events from backend when the week changes
+  useEffect(() => {
+    const startStr = weekDates[0].toISOString();
+    const endStr = weekDates[6].toISOString();
+    calendarStore.fetchEvents(startStr, endStr);
+  }, [currentDate]);
 
   const goToPrevWeek = () => {
     const d = new Date(currentDate);
@@ -95,31 +72,10 @@ export function CalendarPage() {
       });
 
       if (res.ok) {
-        const data = await res.json();
-        const newEvents: Record<string, CalendarEvent[]> = {};
-
-        data.executionWindows.forEach((w: any) => {
-          const ts = w.timeSlice;
-          const start = new Date(ts.startTime);
-          const dateKey = start.toISOString().split("T")[0];
-          const timeStr = start.toTimeString().substring(0, 5);
-          const duration = ts.durationHours;
-          const proc = processes.find((p) => p.id === ts.processId);
-          const title = proc ? proc.name : "Scheduled Slot";
-
-          if (!newEvents[dateKey]) {
-            newEvents[dateKey] = [];
-          }
-          newEvents[dateKey].push({
-            id: w.id,
-            title,
-            time: timeStr,
-            duration,
-            color: "bg-primary",
-          });
-        });
-
-        setEvents(newEvents);
+        // After optimization, reload the events list which pulls in the new execution windows
+        const startStr = weekDates[0].toISOString();
+        const endStr = weekDates[6].toISOString();
+        await calendarStore.fetchEvents(startStr, endStr);
       }
     } catch (err) {
       console.error("Plan optimization failed:", err);
@@ -127,6 +83,15 @@ export function CalendarPage() {
       setIsOptimizing(false);
     }
   };
+
+  const handleSyncGoogle = async () => {
+    await calendarStore.syncGoogleCalendar();
+    // Re-fetch calendar events after sync attempt
+    const startStr = weekDates[0].toISOString();
+    const endStr = weekDates[6].toISOString();
+    await calendarStore.fetchEvents(startStr, endStr);
+  };
+
 
   return (
     <div className="p-8 h-full flex flex-col">
@@ -139,6 +104,12 @@ export function CalendarPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleSyncGoogle}
+            className="px-4 py-2 border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors mr-1 flex items-center gap-1.5"
+          >
+            Sync Google Calendar
+          </button>
           <button
             onClick={handleOptimizePlan}
             disabled={isOptimizing}
@@ -206,32 +177,49 @@ export function CalendarPage() {
                 {/* Day Cells */}
                 {weekDates.map((date, dayIdx) => {
                   const dateKey = formatDateKey(date);
-                  const dayEvents = events[dateKey] || [];
-                  const hourEvents = dayEvents.filter(
-                    (e) => parseInt(e.time.split(":")[0]) === hour
-                  );
+                  // Find events matching this date and hour
+                  const dayEvents = calendarStore.events.filter((e) => {
+                    const eventDate = e.start_time.split("T")[0];
+                    return eventDate === dateKey;
+                  });
+                  const hourEvents = dayEvents.filter((e) => {
+                    const eventHour = new Date(e.start_time).getHours();
+                    return eventHour === hour;
+                  });
 
                   return (
                     <div
                       key={dayIdx}
                       className="h-16 border-l border-t border-border relative"
                     >
-                      {hourEvents.map((event) => (
-                        <div
-                          key={event.id}
-                          className={`absolute left-1 right-1 top-1 rounded-md px-2 py-1 ${event.color}/20 border border-current/10`}
-                          style={{
-                            height: `${event.duration * 64 - 8}px`,
-                          }}
-                        >
-                          <p className={`text-xs font-medium ${event.color.replace("bg-", "text-")}`}>
-                            {event.title}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {event.time} · {event.duration}h
-                          </p>
-                        </div>
-                      ))}
+                      {hourEvents.map((event) => {
+                        // Calculate duration in hours
+                        const start = new Date(event.start_time);
+                        const end = new Date(event.end_time);
+                        const durationHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                        const timeStr = start.toTimeString().substring(0, 5);
+
+                        let colorClass = "bg-primary text-primary";
+                        if (event.source === "google") colorClass = "bg-emerald-500 text-emerald-500";
+                        if (event.is_rest_period) colorClass = "bg-muted text-muted-foreground";
+
+                        return (
+                          <div
+                            key={event.id}
+                            className={`absolute left-1 right-1 top-1 rounded-md px-2 py-1 ${colorClass.split(" ")[0]}/20 border border-current/10 z-10`}
+                            style={{
+                              height: `${durationHours * 64 - 8}px`,
+                            }}
+                          >
+                            <p className={`text-xs font-semibold ${colorClass.split(" ")[1]}`}>
+                              {event.title}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {timeStr} · {durationHours.toFixed(1)}h
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}

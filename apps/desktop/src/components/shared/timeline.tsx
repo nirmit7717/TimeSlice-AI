@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@/services/api-client";
+import { apiClient } from "../../services/api-client";
+
 
 interface TimelineEntry {
   time: string;

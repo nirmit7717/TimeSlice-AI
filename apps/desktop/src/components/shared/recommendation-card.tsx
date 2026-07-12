@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, RotateCcw, HelpCircle, Loader2, Zap } from "lucide-react";
-import { apiClient } from "@/services/api-client";
+import { apiClient } from "../../services/api-client";
+
 
 interface Recommendation {
   process_name: string;

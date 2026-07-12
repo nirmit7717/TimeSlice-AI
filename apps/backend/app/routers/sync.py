@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from database.sync.sync_manager import SyncManager
@@ -74,3 +74,105 @@ def trigger_manual_sync(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Sync trigger failed: {str(e)}"
         )
+
+
+class PullSyncRequest(CamelModel):
+    cloud_records: List[Dict[str, Any]]
+
+
+class ResolveConflictRequest(CamelModel):
+    resolution: str  # "local" | "cloud"
+    cloud_payload: Optional[Dict[str, Any]] = None
+
+
+@router.post("/pull")
+def pull_changes(
+    payload: PullSyncRequest,
+    sync_mgr: SyncManager = Depends(get_sync_manager)
+):
+    """
+    Accepts cloud records, updates local database, and returns detected conflicts.
+    """
+    conflicts = sync_mgr.pull_from_cloud(payload.cloud_records)
+    # Convert conflict models to camelCase output structures
+    return [
+        {
+            "id": c.id,
+            "recordId": c.record_id,
+            "tableName": c.table_name,
+            "field": c.field,
+            "localValue": c.local_value,
+            "cloudValue": c.cloud_value,
+            "localUpdatedAt": c.local_updated_at.isoformat(),
+            "cloudUpdatedAt": c.cloud_updated_at.isoformat(),
+            "processName": c.process_name
+        }
+        for c in conflicts
+    ]
+
+
+@router.get("/conflicts")
+def get_conflicts(sync_mgr: SyncManager = Depends(get_sync_manager)):
+    """
+    Retrieves all unresolved conflicts.
+    """
+    conflicts = sync_mgr.get_conflicts()
+    return [
+        {
+            "id": c.id,
+            "recordId": c.record_id,
+            "tableName": c.table_name,
+            "field": c.field,
+            "localValue": c.local_value,
+            "cloudValue": c.cloud_value,
+            "localUpdatedAt": c.local_updated_at.isoformat(),
+            "cloudUpdatedAt": c.cloud_updated_at.isoformat(),
+            "processName": c.process_name
+        }
+        for c in conflicts
+    ]
+
+
+@router.post("/conflicts/{conflict_id}/resolve")
+def resolve_conflict(
+    conflict_id: str,
+    payload: ResolveConflictRequest,
+    sync_mgr: SyncManager = Depends(get_sync_manager)
+):
+    """
+    Resolves a specific conflict.
+    """
+    success = sync_mgr.resolve_conflict(
+        conflict_id,
+        payload.resolution,
+        payload.cloud_payload
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conflict '{conflict_id}' not found."
+        )
+    return {"status": "success", "message": f"Conflict resolved using {payload.resolution} resolution."}
+
+
+@router.get("/status")
+def get_sync_status(sync_mgr: SyncManager = Depends(get_sync_manager)):
+    """
+    Returns sync statistics (pending count, conflicts count).
+    """
+    pending = sync_mgr.get_pending_transactions()
+    conflicts = sync_mgr.get_conflicts()
+    
+    # We retrieve last_synced_at from database transactions where synced = True
+    # (ordered by created_at desc)
+    from database.models import DbTransaction
+    last_tx = sync_mgr.db.query(DbTransaction).filter(DbTransaction.synced == True).order_by(DbTransaction.created_at.desc()).first()
+    last_synced_at = last_tx.created_at.isoformat() if last_tx else None
+
+    return {
+        "lastSyncedAt": last_synced_at,
+        "pendingCount": len(pending),
+        "conflictCount": len(conflicts),
+        "isOnline": True  # local simulation status is always online
+    }
+

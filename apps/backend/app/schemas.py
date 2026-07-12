@@ -125,3 +125,74 @@ class PlanRequest(CamelModel):
     quantum_hours: Optional[float] = 2.0
     blocked_intervals: Optional[List[List[datetime]]] = None
 
+
+class RecommendationResponse(CamelModel):
+    process_name: str
+    process_id: str
+    policy_name: str
+    duration_hours: float
+    deadline: Optional[datetime] = None
+    priority: int
+    attention_debt: float
+    confidence_score: float
+    reasons: List[str]
+
+
+class AnalyticsMetricsResponse(CamelModel):
+    process_id: str
+    attention_debt: float
+    attention_equity: float
+    deadline_risk: str
+    completion_velocity: float
+    process_health: float
+    health_status: str
+    last_computed_at: datetime
+
+
+class FocusHoursEntrySchema(CamelModel):
+    day: str
+    hours: float
+
+
+class TimeAllocationEntrySchema(CamelModel):
+    name: str
+    hours: float
+
+
+class WeeklySummaryResponse(CamelModel):
+    streak_days: int
+    total_hours: float
+    avg_hours_per_day: float
+    time_allocation: List[TimeAllocationEntrySchema]
+    weekly_focus_hours: List[FocusHoursEntrySchema]
+
+
+class StartSliceRequest(CamelModel):
+    process_id: str
+    duration_hours: Optional[float] = 2.0
+
+
+class CompleteSliceRequest(CamelModel):
+    progress_gained: float
+    reflection: str
+
+
+class AbandonSliceRequest(CamelModel):
+    reflection: str
+
+
+class ChecklistItemResponse(CamelModel):
+    id: str
+    time_slice_id: str
+    title: str
+    completed: bool
+    order: int
+
+
+class CreateChecklistItemRequest(CamelModel):
+    title: str
+    order: Optional[int] = 0
+
+
+
+

@@ -154,3 +154,33 @@ class DbTransaction(Base):
     synced = Column(Boolean, default=False)
 
 
+class DbCalendarEvent(Base):
+    """Local calendar event store — holds both manually created events and Google-synced events. PRD §8.7"""
+    __tablename__ = "calendar_events"
+
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    start_time = Column(DateTime, nullable=False, index=True)
+    end_time = Column(DateTime, nullable=False)
+    description = Column(Text, default="")
+    location = Column(String, default="")
+    is_google_event = Column(Boolean, default=False)    # True if synced from Google Calendar
+    google_event_id = Column(String, nullable=True)     # Google's event ID for upsert
+    calendar_id = Column(String, default="primary")     # Google Calendar ID
+    is_rest_period = Column(Boolean, default=False)     # True if this is a blocked rest period
+    color = Column(String, default="primary")           # Display color hint
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DbUser(Base):
+    """Local user account for JWT-based auth. Cognito-compatible schema. PRD §8.10"""
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    hashed_password = Column(String, nullable=False)
+    name = Column(String, default="")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)

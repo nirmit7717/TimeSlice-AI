@@ -24,6 +24,41 @@ def get_process(process_id: str, repo: ProcessRepository = Depends(get_process_r
         )
     return p
 
+from database.repositories.slice_repo import TimeSliceRepository
+from scheduling_system.services.scheduling_service import SchedulingService
+from scheduling_system.models.time_slice import SliceStatus
+
+def auto_recompute_plan(db):
+    slice_repo = TimeSliceRepository(db)
+    process_repo = ProcessRepository(db)
+    
+    # Clear scheduled slices
+    existing_slices = slice_repo.list()
+    for s in existing_slices:
+        if s.status == SliceStatus.SCHEDULED:
+            slice_repo.delete(s.id)
+            
+    # Generate new plan
+    processes = process_repo.list()
+    if not processes:
+        return
+    try:
+        service = SchedulingService()
+        plan = service.generate_execution_plan(
+            processes=processes,
+            calendar={"blocked_intervals": []},
+            preferences={
+                "max_daily_hours": 8.0,
+                "quantum_hours": 2.0,
+                "available_hours": 8.0
+            },
+            policy_name="round_robin"
+        )
+        for w in plan.execution_windows:
+            slice_repo.create(w.time_slice)
+    except Exception as e:
+        print("[Auto-Recompute Error]", e)
+
 @router.post("", response_model=ProcessResponse, status_code=status.HTTP_201_CREATED)
 def create_process(
     payload: ProcessCreate,
@@ -65,6 +100,9 @@ def create_process(
         metadata={"priority": saved.priority, "status": saved.status.value}
     )
 
+    # 4. Trigger auto-reschedule
+    auto_recompute_plan(repo.db)
+
     return saved
 
 @router.put("/{process_id}", response_model=ProcessResponse)
@@ -101,6 +139,9 @@ def update_process(
             metadata={"priority": updated.priority, "status": updated.status.value}
         )
 
+    # Trigger auto-reschedule
+    auto_recompute_plan(repo.db)
+
     return updated
 
 @router.delete("/{process_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,3 +159,7 @@ def delete_process(
     
     # Cascade delete from vector store
     vector_client.delete_document(process_id)
+
+    # Trigger auto-reschedule
+    auto_recompute_plan(repo.db)
+

@@ -55,7 +55,7 @@ def test_process_dependency_constraint():
 
 def test_max_daily_hours_constraint():
     constraint = MaxDailyHoursConstraint()
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 7, 12, 9, 0, 0, tzinfo=timezone.utc)
     
     ts1 = TimeSlice(id="s1", process_id="p1", start_time=now, end_time=now + timedelta(hours=5), duration_hours=5.0)
     ts2 = TimeSlice(id="s2", process_id="p2", start_time=now + timedelta(hours=5), end_time=now + timedelta(hours=9), duration_hours=4.0)

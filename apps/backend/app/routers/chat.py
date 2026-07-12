@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from attention_kernel.agent_kernel import AgenticAttentionKernel
 from langchain_core.messages import HumanMessage, AIMessage
@@ -15,8 +15,11 @@ class ChatRequest(BaseModel):
     message: str
     history: Optional[List[ChatMessagePayload]] = None
 
+from app.dependencies import get_db
+from sqlalchemy.orm import Session
+
 @router.post("")
-def chat_with_agent(payload: ChatRequest):
+def chat_with_agent(payload: ChatRequest, db: Session = Depends(get_db)):
     """
     Invokes the multi-agent LangGraph attention kernel.
     """
@@ -30,8 +33,9 @@ def chat_with_agent(payload: ChatRequest):
                 history_messages.append(AIMessage(content=msg.content))
 
     try:
-        # Run graph
-        res = kernel.invoke_chat(payload.message, history=history_messages)
+        # Run graph with database session context
+        active_kernel = AgenticAttentionKernel(db_session=db)
+        res = active_kernel.invoke_chat(payload.message, history=history_messages)
         
         # Format response
         messages_out = []
@@ -49,3 +53,4 @@ def chat_with_agent(payload: ChatRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI Kernel execution error: {str(e)}"
         )
+

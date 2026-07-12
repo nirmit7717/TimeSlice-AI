@@ -40,3 +40,69 @@ def test_repository_atomic_sync_logging(db_session, sample_process_domain):
     # 5. Clear synced transactions
     deleted_count = sync_manager.clear_synced_transactions()
     assert deleted_count == 1  # The first INSERT transaction is deleted from logs
+
+
+def test_conflict_detection_and_resolution(db_session, sample_process_domain):
+    process_repo = ProcessRepository(db_session)
+    sync_manager = SyncManager(db_session)
+
+    # 1. Clear any active conflicts cache
+    from database.sync.sync_manager import _conflicts_cache
+    _conflicts_cache.clear()
+
+    # 2. Create local record
+    process_repo.create(sample_process_domain)
+
+    # 3. Create a local pending update to trigger conflict check later
+    sample_process_domain.name = "Local Modified Name"
+    process_repo.update(sample_process_domain)
+
+    # Verify we have 2 local transactions now (INSERT + UPDATE)
+    pending = sync_manager.get_pending_transactions()
+    assert len(pending) == 2
+
+    # 4. Pull from cloud with a different name to trigger conflict
+    cloud_records = [
+        {
+            "tableName": "processes",
+            "recordId": sample_process_domain.id,
+            "updatedAt": "2026-07-12T12:00:00Z",
+            "payload": {
+                "name": "Cloud Conflicting Name",
+                "description": "Cloud desc",
+                "goal": "Cloud goal",
+                "priority": 5,
+                "deadline": "2026-07-17T00:00:00Z",
+                "estimatedEffortHours": 10.0,
+                "remainingEffortHours": 10.0,
+                "status": "Active",
+                "progress": 0.0
+            }
+        }
+    ]
+
+    conflicts = sync_manager.pull_from_cloud(cloud_records)
+    assert len(conflicts) == 1
+    assert conflicts[0].record_id == sample_process_domain.id
+    assert conflicts[0].local_value == "Local Modified Name"
+    assert conflicts[0].cloud_value == "Cloud Conflicting Name"
+
+    # Verify conflicts exist in manager list
+    assert len(sync_manager.get_conflicts()) == 1
+
+    # 5. Resolve conflict using "cloud" resolution
+    success = sync_manager.resolve_conflict(
+        conflict_id=f"processes:{sample_process_domain.id}",
+        resolution="cloud",
+        cloud_payload=cloud_records[0]["payload"]
+    )
+    assert success is True
+
+    # 6. Verify conflict is cleared and local record is updated to cloud version
+    assert len(sync_manager.get_conflicts()) == 0
+    updated_local = process_repo.get(sample_process_domain.id)
+    assert updated_local.name == "Cloud Conflicting Name"
+
+    # Also verify local pending transactions are marked as synced (so we don't overwrite the cloud)
+    assert len(sync_manager.get_pending_transactions()) == 0
+

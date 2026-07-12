@@ -56,3 +56,44 @@ def test_process_health_calculator():
     score_deficient = calc.calculate_health_score(p, time_left_hours=2.0)
     assert score_deficient == 72.0
     assert calc.get_health_status(score_deficient) == "Fair"
+
+
+from scheduling_system.metrics.completion_velocity import CompletionVelocityCalculator
+from scheduling_system.metrics.deadline_risk import DeadlineRiskCalculator
+from scheduling_system.models.time_slice import TimeSlice, SliceStatus
+
+def test_completion_velocity_calculator():
+    calc = CompletionVelocityCalculator()
+    now = datetime.now(timezone.utc)
+    
+    slices = [
+        TimeSlice(id="s1", process_id="p1", start_time=now - timedelta(hours=3), end_time=now - timedelta(hours=2), duration_hours=1.0, status=SliceStatus.COMPLETED),
+        TimeSlice(id="s2", process_id="p1", start_time=now - timedelta(hours=2), end_time=now - timedelta(hours=1), duration_hours=2.0, status=SliceStatus.COMPLETED),
+        TimeSlice(id="s3", process_id="p1", start_time=now - timedelta(days=10), end_time=now - timedelta(days=9), duration_hours=3.0, status=SliceStatus.COMPLETED), # Out of 7-day window
+    ]
+    
+    velocity = calc.calculate_velocity(slices, rolling_window_days=7)
+    # Total hours in last 7 days = 1.0 (s1) + 2.0 (s2) = 3.0
+    # Velocity = 3.0 / 7 = 0.43
+    assert velocity == 0.43
+
+def test_deadline_risk_calculator():
+    calc = DeadlineRiskCalculator()
+    now = datetime.now(timezone.utc)
+    
+    # 1. Overdue -> Critical
+    risk = calc.calculate_risk(remaining_effort_hours=5.0, deadline=now - timedelta(hours=1))
+    assert risk == "Critical"
+    
+    # 2. Tight timeline -> Critical (needs 10h in 1 day, daily capacity is 8h)
+    risk = calc.calculate_risk(remaining_effort_hours=10.0, deadline=now + timedelta(days=1))
+    assert risk == "Critical"
+    
+    # 3. High risk (needs 7h in 1 day, daily capacity is 8h)
+    risk = calc.calculate_risk(remaining_effort_hours=7.0, deadline=now + timedelta(days=1))
+    assert risk == "High"
+    
+    # 4. Low risk (needs 1h in 2 days)
+    risk = calc.calculate_risk(remaining_effort_hours=1.0, deadline=now + timedelta(days=2))
+    assert risk == "Low"
+

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   LineChart,
   Line,
@@ -8,50 +9,115 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { HealthRing } from "./health-ring";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react";
+import { apiClient } from "../../services/api-client";
 
-const velocityData = [
-  { day: "Mon", velocity: 3.2 },
-  { day: "Tue", velocity: 4.1 },
-  { day: "Wed", velocity: 3.8 },
-  { day: "Thu", velocity: 5.5 },
-  { day: "Fri", velocity: 4.9 },
-  { day: "Sat", velocity: 2.1 },
-  { day: "Sun", velocity: 1.8 },
-];
 
-const metrics = [
-  {
-    label: "Attention Debt",
-    value: "17.8h",
-    trend: "up",
-    trendValue: "+2.3h",
-    trendColor: "text-red-400",
-  },
-  {
-    label: "Attention Equity",
-    value: "53.5h",
-    trend: "up",
-    trendValue: "+4.2h",
-    trendColor: "text-emerald-400",
-  },
-  {
-    label: "Deadline Risk",
-    value: "2 processes",
-    trend: "flat",
-    trendValue: "Stable",
-    trendColor: "text-amber-400",
-  },
-  {
-    label: "Completion Velocity",
-    value: "3.6h/day",
-    trend: "up",
-    trendValue: "+0.4h",
-    trendColor: "text-emerald-400",
-  },
-];
+interface ProcessMetric {
+  processId: string;
+  name?: string;
+  attentionDebt: number;
+  attentionEquity: number;
+  deadlineRisk: string;
+  completionVelocity: number;
+  processHealth: number;
+  healthStatus: string;
+}
 
 export function MetricsPanel() {
+  // Query 1: Get process-specific metrics
+  const { data: metrics, isLoading: loadingMetrics } = useQuery({
+    queryKey: ["analytics-metrics"],
+    queryFn: async () => {
+      const res = await apiClient.get("/analytics/metrics");
+      // Map to frontend-friendly snake_to_camel case structure
+      return res.data.map((m: any) => ({
+        processId: m.processId ?? m.process_id,
+        name: m.name ?? `Process ${m.processId ?? m.process_id}`,
+        attentionDebt: m.attentionDebt ?? m.attention_debt ?? 0.0,
+        attentionEquity: m.attentionEquity ?? m.attention_equity ?? 0.0,
+        deadlineRisk: m.deadlineRisk ?? m.deadline_risk ?? "Low",
+        completionVelocity: m.completionVelocity ?? m.completion_velocity ?? 0.0,
+        processHealth: m.processHealth ?? m.process_health ?? 100.0,
+        healthStatus: m.healthStatus ?? m.health_status ?? "Excellent",
+      })) as ProcessMetric[];
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Query 2: Get weekly digest summary
+  const { data: weeklySummary, isLoading: loadingSummary } = useQuery({
+    queryKey: ["weekly-summary"],
+    queryFn: async () => {
+      const res = await apiClient.get("/analytics/weekly-summary");
+      return res.data;
+    },
+    staleTime: 60 * 1000,
+  });
+
+  if (loadingMetrics || loadingSummary) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Compute aggregate averages
+  const totalProcesses = metrics?.length ?? 0;
+  const avgDebt = totalProcesses
+    ? metrics!.reduce((sum, m) => sum + m.attentionDebt, 0) / totalProcesses
+    : 0.0;
+  const avgEquity = totalProcesses
+    ? metrics!.reduce((sum, m) => sum + m.attentionEquity, 0) / totalProcesses
+    : 0.0;
+  const criticalRiskCount = metrics?.filter((m) => m.deadlineRisk === "Critical" || m.deadlineRisk === "High").length ?? 0;
+  const avgVelocity = totalProcesses
+    ? metrics!.reduce((sum, m) => sum + m.completionVelocity, 0) / totalProcesses
+    : 0.0;
+
+  const keyCards = [
+    {
+      label: "Attention Debt",
+      value: `${avgDebt.toFixed(1)}h`,
+      trend: avgDebt > 5.0 ? "up" : "flat",
+      trendValue: avgDebt > 5.0 ? "High neglect" : "Under control",
+      trendColor: avgDebt > 5.0 ? "text-red-400" : "text-emerald-400",
+    },
+    {
+      label: "Attention Equity",
+      value: `${avgEquity.toFixed(1)}h`,
+      trend: avgEquity > 10.0 ? "up" : "flat",
+      trendValue: avgEquity > 10.0 ? "Strong momentum" : "Low momentum",
+      trendColor: avgEquity > 10.0 ? "text-emerald-400" : "text-amber-400",
+    },
+    {
+      label: "Critical Risks",
+      value: `${criticalRiskCount} tasks`,
+      trend: criticalRiskCount > 0 ? "up" : "flat",
+      trendValue: criticalRiskCount > 0 ? "Action required" : "Stable",
+      trendColor: criticalRiskCount > 0 ? "text-red-400" : "text-emerald-400",
+    },
+    {
+      label: "Completion Velocity",
+      value: `${avgVelocity.toFixed(1)}h/day`,
+      trend: avgVelocity > 1.0 ? "up" : "flat",
+      trendValue: avgVelocity > 1.0 ? "Productive" : "Stalled",
+      trendColor: avgVelocity > 1.0 ? "text-emerald-400" : "text-amber-400",
+    },
+  ];
+
+  // Map focus hours from summary for Recharts
+  const focusChartData = weeklySummary?.weeklyFocusHours ?? [
+    { day: "Mon", hours: 0 },
+    { day: "Tue", hours: 0 },
+    { day: "Wed", hours: 0 },
+    { day: "Thu", hours: 0 },
+    { day: "Fri", hours: 0 },
+    { day: "Sat", hours: 0 },
+    { day: "Sun", hours: 0 },
+  ];
+
   return (
     <div className="space-y-8">
       {/* Health Rings */}
@@ -59,12 +125,22 @@ export function MetricsPanel() {
         <h3 className="text-sm font-semibold text-foreground mb-6">
           Process Health
         </h3>
-        <div className="grid grid-cols-4 gap-6">
-          <HealthRing value={82} label="Backend Scheduler" sublabel="Healthy" />
-          <HealthRing value={45} label="Azure AZ-900" sublabel="At Risk" />
-          <HealthRing value={25} label="Q4 Planning" sublabel="Critical" />
-          <HealthRing value={68} label="Code Review" sublabel="Fair" />
-        </div>
+        {totalProcesses === 0 ? (
+          <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
+            No active processes to display.
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-6">
+            {metrics!.slice(0, 4).map((m) => (
+              <HealthRing
+                key={m.processId}
+                value={Math.round(m.processHealth)}
+                label={m.name || "Process"}
+                sublabel={m.healthStatus}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Metric Cards */}
@@ -73,7 +149,7 @@ export function MetricsPanel() {
           Key Metrics
         </h3>
         <div className="grid grid-cols-4 gap-4">
-          {metrics.map((metric) => {
+          {keyCards.map((metric) => {
             const TrendIcon =
               metric.trend === "up"
                 ? TrendingUp
@@ -108,11 +184,11 @@ export function MetricsPanel() {
       {/* Velocity Chart */}
       <div>
         <h3 className="text-sm font-semibold text-foreground mb-4">
-          Completion Velocity
+          Weekly focus hours trend
         </h3>
         <div className="bg-card border border-border rounded-xl p-6">
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={velocityData}>
+            <LineChart data={focusChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272A" />
               <XAxis
                 dataKey="day"
@@ -131,10 +207,10 @@ export function MetricsPanel() {
               />
               <Line
                 type="monotone"
-                dataKey="velocity"
-                stroke="#22C55E"
+                dataKey="hours"
+                stroke="#4F7CFF"
                 strokeWidth={2}
-                dot={{ fill: "#22C55E", r: 4 }}
+                dot={{ fill: "#4F7CFF", r: 4 }}
               />
             </LineChart>
           </ResponsiveContainer>
