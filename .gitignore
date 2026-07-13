@@ -52,3 +52,6 @@ src-tauri/target/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Doc Files
+docs/design-bible
